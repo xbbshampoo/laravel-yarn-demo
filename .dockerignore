@@ -1,0 +1,11 @@
+.idea
+.git
+.gitignore
+.env*
+vendor
+kubernetes
+node_modules
+Dockerfile
+docker-compose*
+/public/build
+/public/hot

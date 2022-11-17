@@ -1,0 +1,113 @@
+services:
+  proxy:
+    container_name: proxy
+    image: traefik:2.8.1
+    command:
+      # Enable Docker in Traefik, so that it reads labels from Docker services
+      - "--providers.docker=true"
+      - "--providers.docker.network=proxy"
+      # Do not expose all Docker services, only the ones explicitly exposed
+      - "--providers.docker.exposedbydefault=false"
+      # Enable Docker Swarm mode
+      - "--providers.docker.swarmMode=false"
+      # - "--providers.docker.endpoint=${TRAEFIK_DOCKER:-tcp://127.0.0.1:2377}"
+      # Create an entrypoint "web" listening on port 80
+      - "--entrypoints.web.address=:80"
+      # Create an entrypoint "websecure" listening on port 443
+      - "--entrypoints.websecure.address=:443"
+      # Forces redirection of incoming requests from `web` to `websecure` entrypoint
+      # https://doc.traefik.io/traefik/routing/entrypoints/#redirection
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      # Enable the Dashboard and API
+      - "--api"
+      - "--api.insecure=true"
+      - "--log.level=DEBUG"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - internal
+  webserver:
+    container_name: webserver
+    build:
+      context: .
+      dockerfile: ./docker/nginx/Dockerfile
+      target: webserver-development
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    volumes:
+      - ./public:/app/public
+    labels:
+      traefik.enable: true
+      traefik.http.routers.php.rule: 'Host(`laravel-docker-base.localtest.me`)'
+      traefik.http.routers.php.tls: true
+      traefik.http.routers.php.entrypoints: websecure
+      traefik.http.routers.php.service: php
+      traefik.http.services.php.loadbalancer.server.port: 9090
+    depends_on:
+      - php
+    networks:
+      - internal
+  php:
+    container_name: php
+    build:
+      context: .
+      dockerfile: ./docker/php/Dockerfile
+      target: php-development
+      args:
+        APP_USER: ${UID:-1000}
+        APP_GROUP: ${GID:-1000}
+        CURRENT_ENVIRONMENT: development
+    volumes:
+      - ./:/app
+    networks:
+      - internal
+  mysql_db:
+    container_name: db
+    image: mysql:8.0-oracle
+    environment:
+      - MYSQL_DATABASE=db
+      - MYSQL_RANDOM_ROOT_PASSWORD=yes
+      - MYSQL_USER=db_user
+      - MYSQL_PASSWORD=db_password
+    volumes:
+      - db:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - internal
+  mysql_test_db:
+    container_name: test-db
+    image: mysql:8.0-oracle
+    environment:
+      - MYSQL_DATABASE=testing-db
+      - MYSQL_RANDOM_ROOT_PASSWORD=yes
+      - MYSQL_USER=db_user
+      - MYSQL_PASSWORD=db_password
+    tmpfs:
+      - /var/lib/mysql
+    networks:
+      - internal
+  redis:
+    container_name: redis
+    image: redis:7-alpine
+    networks:
+      - internal
+  yarn:
+    image: node:18-alpine
+    user: ${UID:-1000}:${GID:-1000}
+    container_name: yarn
+    volumes:
+      - ./:/app
+    working_dir: /app
+    entrypoint: [ 'yarn' ]
+    networks:
+      - internal
+networks:
+  internal:
+volumes:
+  db:
